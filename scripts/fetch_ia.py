@@ -10,7 +10,7 @@ import argparse, json, os, sqlite3, sys, time, urllib.parse
 from pathlib import Path
 import requests
 sys.path.insert(0, str(Path(__file__).parent))
-from korean_check import is_korean
+from quality_check import assess as check_epub
 
 SEARCH = "https://archive.org/advancedsearch.php"
 META   = "https://archive.org/metadata/{id}"
@@ -104,13 +104,13 @@ def main():
                 actual = dest.stat().st_size
                 if actual < args.min_kb * 1024:
                     dest.unlink(); print(f"[ia] too-small {ident}", file=sys.stderr); continue
-                ok, why = is_korean(dest)
+                ok, why, _stats = check_epub(dest)
                 if not ok:
                     dest.unlink()
                     con.execute("INSERT OR IGNORE INTO fetched(identifier,title,creator,path,size) VALUES(?,?,?,?,?)",
                                 (ident, d.get("title", ""), str(d.get("creator", "")), "not-korean", 0))
                     con.commit()
-                    print(f"[ia] rejected non-korean {ident} ({why})", file=sys.stderr)
+                    print(f"[ia] rejected {ident} ({why})", file=sys.stderr)
                     continue
                 con.execute("INSERT OR IGNORE INTO fetched(identifier,title,creator,path,size) VALUES(?,?,?,?,?)",
                             (ident, d.get("title", ""), str(d.get("creator", "")), str(dest), actual))
