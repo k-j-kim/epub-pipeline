@@ -1,0 +1,10 @@
+# Monthly: refresh Anna's Archive metadata dump, re-select Korean EPUBs, queue torrents
+0 3 1 * * root /scripts/refresh.sh >> /state/refresh.log 2>&1
+
+# Daily: ingest any newly-completed downloads into the Calibre library
+15 4 * * * root /scripts/ingest.sh >> /state/ingest.log 2>&1
+
+# Weekly (Sunday 09:00 local): email N unread Korean EPUBs to the Kindle
+0 9 * * 0 root /scripts/send_to_kindle.py >> /state/kindle.log 2>&1
+
+# needed for cron to pick up env

@@ -1,0 +1,64 @@
+services:
+  # Torrent client — pulls Anna's Archive metadata dump + selected Korean EPUB torrents
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: kbfm-qbittorrent
+    environment:
+      - PUID=${PUID:-1026}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Asia/Seoul}
+      - WEBUI_PORT=8080
+    volumes:
+      - ${DATA_DIR}/qbittorrent/config:/config
+      - ${DATA_DIR}/downloads:/downloads
+      - ${DATA_DIR}/metadata:/metadata
+    ports:
+      - "${QB_PORT:-8080}:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    restart: unless-stopped
+
+  # Calibre-web — library UI, dedupe, format conversion, send-to-Kindle
+  calibre-web:
+    image: lscr.io/linuxserver/calibre-web:latest
+    container_name: kbfm-calibre-web
+    environment:
+      - PUID=${PUID:-1026}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Asia/Seoul}
+      - DOCKER_MODS=linuxserver/mods:universal-calibre
+    volumes:
+      - ${DATA_DIR}/calibre/config:/config
+      - ${DATA_DIR}/library:/books
+    ports:
+      - "${CW_PORT:-8083}:8083"
+    restart: unless-stopped
+
+  # Worker — runs cron jobs: metadata refresh, Korean EPUB selection, ingest, weekly Kindle push
+  worker:
+    build: ./worker
+    container_name: kbfm-worker
+    environment:
+      - TZ=${TZ:-Asia/Seoul}
+      - KINDLE_EMAIL=${KINDLE_EMAIL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+      - BOOKS_PER_WEEK=${BOOKS_PER_WEEK:-5}
+      - QB_URL=http://qbittorrent:8080
+      - QB_USER=${QB_USER:-admin}
+      - QB_PASS=${QB_PASS:-adminadmin}
+      - MIN_EPUB_KB=${MIN_EPUB_KB:-200}
+      - MAX_EPUB_MB=${MAX_EPUB_MB:-50}
+    volumes:
+      - ${DATA_DIR}/metadata:/metadata
+      - ${DATA_DIR}/downloads:/downloads
+      - ${DATA_DIR}/library:/library
+      - ${DATA_DIR}/worker/state:/state
+      - ./scripts:/scripts:ro
+    depends_on:
+      - qbittorrent
+      - calibre-web
+    restart: unless-stopped
