@@ -67,6 +67,36 @@ def library_count():
     return sqlite_count(LIBRARY / "metadata.db", "SELECT COUNT(*) FROM books") or 0
 
 
+def library_recent(limit=50):
+    """Return the N most recently added books: title, author, added_at, sent."""
+    if not (LIBRARY / "metadata.db").exists():
+        return []
+    try:
+        con = sqlite3.connect(f"file:{LIBRARY}/metadata.db?mode=ro", uri=True)
+        rows = con.execute("""
+            SELECT b.id, b.title, b.timestamp, COALESCE(GROUP_CONCAT(a.name, ', '), '')
+            FROM books b
+            LEFT JOIN books_authors_link bal ON bal.book = b.id
+            LEFT JOIN authors a ON a.id = bal.author
+            GROUP BY b.id
+            ORDER BY b.timestamp DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    # Cross-reference sent.db so the UI can flag already-emailed books
+    sent_ids = set()
+    sdb = STATE / "sent.db"
+    if sdb.exists():
+        try:
+            scon = sqlite3.connect(f"file:{sdb}?mode=ro", uri=True)
+            sent_ids = {r[0] for r in scon.execute("SELECT id FROM sent")}
+        except Exception:
+            pass
+    return [{"id": r[0], "title": r[1], "added_at": r[2], "author": r[3], "sent": r[0] in sent_ids} for r in rows]
+
+
 def source_counts():
     out = {}
     for name in ("ia", "libgen", "aa"):
@@ -257,6 +287,25 @@ INDEX_HTML = r"""<!DOCTYPE html>
   </div>
   <div class="flash" id="flash"></div>
 
+  <div class="section-title">
+    library <span style="color:var(--muted);text-transform:none;letter-spacing:0;font-size:.75rem">
+      — <a id="show-all" href="#" style="color:var(--muted)">show all</a>
+    </span>
+  </div>
+  <div class="card" style="padding:0">
+    <table id="books" style="width:100%;border-collapse:collapse;font-size:.85rem">
+      <thead>
+        <tr style="text-align:left;color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.08em">
+          <th style="padding:.5rem .75rem">added</th>
+          <th style="padding:.5rem .75rem">title</th>
+          <th style="padding:.5rem .75rem">author</th>
+          <th style="padding:.5rem .75rem;width:2ch">✉</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
   <div class="section-title">recent logs</div>
   <div id="logs"></div>
 </main>
@@ -366,7 +415,43 @@ const tickClock = () => {
     new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 tickClock(); setInterval(tickClock, 30000);
+
+let bookLimit = 15;
+async function refreshBooks() {
+  try {
+    const r = await fetch(`/library.json?limit=${bookLimit}`, { cache: "no-store" });
+    const j = await r.json();
+    const tbody = document.querySelector("#books tbody");
+    tbody.innerHTML = "";
+    if (!j.books || j.books.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="padding:1rem;color:var(--muted);text-align:center">no books yet — trigger a fetch above</td></tr>`;
+      return;
+    }
+    for (const b of j.books) {
+      const tr = document.createElement("tr");
+      tr.style.borderTop = "1px solid var(--border)";
+      const when = (b.added_at || "").slice(0, 10);
+      tr.innerHTML =
+        `<td style="padding:.45rem .75rem;color:var(--muted);font-variant-numeric:tabular-nums">${when}</td>` +
+        `<td style="padding:.45rem .75rem">${escapeHtml(b.title || "(untitled)")}</td>` +
+        `<td style="padding:.45rem .75rem;color:var(--muted)">${escapeHtml(b.author || "")}</td>` +
+        `<td style="padding:.45rem .75rem;text-align:center;color:var(--ok)">${b.sent ? "✓" : ""}</td>`;
+      tbody.appendChild(tr);
+    }
+  } catch (e) { /* ignore transient errors */ }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+document.getElementById("show-all").addEventListener("click", (e) => {
+  e.preventDefault();
+  bookLimit = bookLimit === 15 ? 500 : 15;
+  e.target.textContent = bookLimit === 15 ? "show all" : "show fewer";
+  refreshBooks();
+});
+
 refresh(); setInterval(refresh, 5000);
+refreshBooks(); setInterval(refreshBooks, 15000);
 </script>
 </body>
 </html>
@@ -397,6 +482,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/status.json":
             return self._json(200, status())
+        if self.path.startswith("/library.json"):
+            # Optional ?limit=N (default 50, max 500)
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            try: n = min(int(q.get("limit", ["50"])[0]), 500)
+            except ValueError: n = 50
+            return self._json(200, {"books": library_recent(n)})
         if self.path == "/healthz":
             return self._json(200, {"ok": True})
         self.send_error(404)
