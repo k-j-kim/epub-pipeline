@@ -12,6 +12,8 @@ across runs will grow the library steadily.
 import argparse, os, re, sqlite3, sys, time
 from pathlib import Path
 import requests
+sys.path.insert(0, str(Path(__file__).parent))
+from korean_check import is_korean
 
 HOST = os.environ.get("AA_HOSTS", "annas-archive.pk").split()[0]
 UA_DEFAULT = "Mozilla/5.0 (X11; Linux x86_64) Firefox/128.0"
@@ -146,6 +148,14 @@ def main():
                     con.execute("INSERT OR IGNORE INTO fetched(md5,title,path,size) VALUES(?,?,?,?)",
                                 (md5, "", "", sz))
                     con.commit(); continue
+                ok, why = is_korean(dest)
+                if not ok:
+                    dest.unlink()
+                    con.execute("INSERT OR IGNORE INTO fetched(md5,title,path,size) VALUES(?,?,?,?)",
+                                (md5, "", "not-korean", 0))
+                    con.commit()
+                    print(f"[aa] rejected non-korean {md5} ({why})", file=sys.stderr)
+                    continue
                 con.execute("INSERT OR IGNORE INTO fetched(md5,title,path,size) VALUES(?,?,?,?)",
                             (md5, "", str(dest), sz))
                 con.commit()

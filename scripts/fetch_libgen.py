@@ -10,6 +10,8 @@ column contains 'epub', then resolve each md5 to a direct download URL.
 import argparse, os, re, sqlite3, sys, time
 from pathlib import Path
 import requests
+sys.path.insert(0, str(Path(__file__).parent))
+from korean_check import is_korean
 
 HOST = os.environ.get("LIBGEN_HOST", "libgen.li")
 UA   = "Mozilla/5.0 (X11; Linux x86_64) Firefox/128.0"
@@ -113,6 +115,13 @@ def main():
                     dest.unlink()
                     con.execute("INSERT OR IGNORE INTO fetched(md5,path,size) VALUES(?,?,?)", (md5, "", sz))
                     con.commit(); continue
+                ok, why = is_korean(dest)
+                if not ok:
+                    dest.unlink()
+                    con.execute("INSERT OR IGNORE INTO fetched(md5,path,size) VALUES(?,?,?)", (md5, "not-korean", 0))
+                    con.commit()
+                    print(f"[libgen] rejected non-korean {md5} ({why})", file=sys.stderr)
+                    continue
                 con.execute("INSERT OR IGNORE INTO fetched(md5,path,size) VALUES(?,?,?)", (md5, str(dest), sz))
                 con.commit()
                 fetched += 1

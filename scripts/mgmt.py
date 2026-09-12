@@ -20,6 +20,7 @@ TRIGGERS = {
     "fetch_libgen":  ["python3", "/scripts/fetch_libgen.py"],
     "fetch_aa":      ["python3", "/scripts/fetch_aa.py"],
     "ingest":        ["/scripts/ingest.sh"],
+    "purge":         ["python3", "/scripts/purge_non_korean.py"],
     "send":          ["/scripts/send_to_kindle.py"],
 }
 
