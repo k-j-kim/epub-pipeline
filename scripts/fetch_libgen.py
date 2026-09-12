@@ -48,7 +48,9 @@ def search_epubs(s, host, seed, page=1):
 
 
 def resolve_download(s, host, md5):
-    r = s.get(f"https://{host}/ads.php", params={"md5": md5}, timeout=30)
+    # ads.php returns an empty body without a Referer header; the header is set
+    # on the session, so this works.
+    r = s.get(f"https://{host}/ads.php", params={"md5": md5}, timeout=60)
     r.raise_for_status()
     m = GET_LINK_RE.search(r.text)
     if not m:
@@ -69,7 +71,12 @@ def main():
     con = db(args.state_db)
 
     s = requests.Session()
-    s.headers["User-Agent"] = UA
+    s.headers.update({
+        "User-Agent": UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": f"https://{HOST}/",
+    })
     fetched = 0
 
     for seed in SEEDS:
