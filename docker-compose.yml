@@ -62,3 +62,37 @@ services:
       - qbittorrent
       - calibre-web
     restart: unless-stopped
+
+  # Management dashboard — status + manual triggers, on :${MGMT_PORT}
+  mgmt:
+    build: ./worker
+    container_name: kbfm-mgmt
+    command: ["python3", "/scripts/mgmt.py"]
+    environment:
+      - TZ=${TZ:-Asia/Seoul}
+      - KINDLE_EMAIL=${KINDLE_EMAIL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+      - BOOKS_PER_WEEK=${BOOKS_PER_WEEK:-5}
+      - QB_URL=http://qbittorrent:8080
+      - QB_USER=${QB_USER:-admin}
+      - QB_PASS=${QB_PASS:-adminadmin}
+      - MIN_EPUB_KB=${MIN_EPUB_KB:-200}
+      - MAX_EPUB_MB=${MAX_EPUB_MB:-50}
+      - MGMT_PORT=8484
+      - QB_PUBLIC_PORT=${QB_PORT:-8181}
+      - CW_PUBLIC_PORT=${CW_PORT:-8283}
+    volumes:
+      - ${DATA_DIR}/metadata:/metadata
+      - ${DATA_DIR}/downloads:/downloads
+      - ${DATA_DIR}/library:/library
+      - ${DATA_DIR}/worker/state:/state
+      - ./scripts:/scripts:ro
+    ports:
+      - "${MGMT_PORT:-8484}:8484"
+    depends_on:
+      - worker
+    restart: unless-stopped
