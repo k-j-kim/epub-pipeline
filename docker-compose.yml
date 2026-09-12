@@ -87,6 +87,8 @@ services:
       - QB_PASS=${QB_PASS:-adminadmin}
       - MIN_EPUB_KB=${MIN_EPUB_KB:-200}
       - MAX_EPUB_MB=${MAX_EPUB_MB:-50}
+      - AA_HOSTS=${AA_HOSTS:-annas-archive.gs annas-archive.org annas-archive.se}
+      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-}
       - MGMT_PORT=8484
       - QB_PUBLIC_PORT=${QB_PORT:-8181}
       - CW_PUBLIC_PORT=${CW_PORT:-8283}
