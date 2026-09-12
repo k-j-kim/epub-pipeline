@@ -50,13 +50,21 @@ def db(path):
 
 
 def search_md5s(s, host, page):
-    r = s.get(f"https://{host}/search", params={
-        "lang": "ko", "ext": "epub", "sort": "newest", "page": page,
-    }, timeout=30)
-    r.raise_for_status()
+    try:
+        r = s.get(f"https://{host}/search", params={
+            "lang": "ko", "ext": "epub", "sort": "newest", "page": page,
+        }, timeout=30)
+    except Exception as e:
+        print(f"[aa] search network fail: {e}", file=sys.stderr)
+        return None
+    if r.status_code in (403, 429, 503):
+        print(f"[aa] search returned {r.status_code} — bot gate", file=sys.stderr)
+        return None
+    if not r.ok:
+        print(f"[aa] search unexpected status {r.status_code}", file=sys.stderr)
+        return None
     body = r.text
     if len(body) < 5000 or "Loading" in body[:2000]:
-        # bot gate
         return None
     return list({m.lower() for m in MD5_RE.findall(body)})
 
