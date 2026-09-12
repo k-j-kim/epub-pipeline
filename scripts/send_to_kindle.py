@@ -29,7 +29,11 @@ def calibre_list():
     for r in json.loads(out):
         for fmt in r.get("formats", []):
             if fmt.lower().endswith(".epub"):
-                rows.append((r["id"], r["title"], ", ".join(r.get("authors") or []), fmt))
+                # calibredb --for-machine returns authors as a STRING (pre-joined),
+                # not a list. Joining a string chars gives 'ㄱ, ㄴ, ...' garbage.
+                a = r.get("authors")
+                author = a if isinstance(a, str) else ", ".join(a or [])
+                rows.append((r["id"], r["title"], author, fmt))
                 break
     return rows
 

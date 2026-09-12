@@ -153,7 +153,9 @@ def status():
         },
         "sources": source_counts(),
         "last_logs": {
-            name: tail_log(STATE / f"{name}.log") for name in ("refresh", "ingest", "kindle")
+            "refresh": tail_log(STATE / "refresh.log"),
+            "ingest":  tail_log(STATE / "ingest.log"),
+            "kindle":  tail_log(STATE / "send.log") or tail_log(STATE / "kindle.log"),
         },
         "running": {name: (time.time() - t) for name, t in running.items()},
         "bypass": {
