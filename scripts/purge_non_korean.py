@@ -45,45 +45,41 @@ def set_meta(bid, title=None, author=None):
 def main():
     removed = []
     rewrote = []
+    unverified = []
     kept = 0
     for row in calibre_list():
         bid = row["id"]
         title = row.get("title", "") or ""
-        author = ", ".join(row.get("authors") or []) if row.get("authors") else ""
+        # calibredb --for-machine returns authors as a STRING (already joined),
+        # not a list; treat both defensively.
+        a = row.get("authors")
+        author = a if isinstance(a, str) else ", ".join(a or [])
         epub = None
         for fmt in row.get("formats", []):
             if fmt.lower().endswith(".epub"):
                 epub = fmt; break
 
-        # --- Stage 1: content quality ---
+        # --- Content quality (the ONLY delete signal) ---
         if epub:
             ok_c, why_c, _ = assess(epub)
             if not ok_c:
-                # Only content-reject if it's clearly bad; combine with metadata
-                if why_c.startswith(("too-non-korean", "no-title", "bad-zip", "opf-parse", "no-opf")):
-                    removed.append((bid, title, f"content:{why_c}"))
-                    continue
-                # "too-little-korean" or "mostly-images" — keep for meta check below
+                removed.append((bid, title, f"content:{why_c}"))
+                continue
 
-        # --- Stage 2: metadata verify ---
+        # --- Metadata verify (rewrite-only; never a delete signal) ---
         if needs_verify(title):
             meta = lookup(title, author)
             if meta["verified"]:
-                # Rewrite Calibre record with canonical hangul metadata
                 try:
                     set_meta(bid, title=meta["title"], author=meta["author"] or None)
                     rewrote.append((bid, title, meta["title"]))
-                    kept += 1
                 except subprocess.CalledProcessError as e:
                     print(f"[purge] set_meta failed for {bid}: {e}", file=sys.stderr)
-                    kept += 1
             else:
-                # Content was borderline AND metadata says "no Korean book by this name"
-                removed.append((bid, title, f"unverified:{meta['source']}"))
-        else:
-            kept += 1
+                unverified.append((bid, title, meta["source"]))
+        kept += 1
 
-    print(f"[purge] kept={kept}  rewrote={len(rewrote)}  removed={len(removed)}")
+    print(f"[purge] kept={kept}  rewrote={len(rewrote)}  removed={len(removed)}  unverified={len(unverified)}")
     if rewrote:
         print("[purge] title rewrites:")
         for bid, old, new in rewrote[:50]:
