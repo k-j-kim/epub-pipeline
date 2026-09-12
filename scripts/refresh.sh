@@ -14,7 +14,8 @@ mkdir -p "$META_DIR" "$STATE"
 
 echo "[refresh] $(date -Iseconds) starting"
 
-AA_HOSTS="${AA_HOSTS:-annas-archive.gs annas-archive.org annas-archive.se}"
+AA_HOSTS="${AA_HOSTS:-annas-archive.pk annas-archive.li annas-archive.gs}"
+AA_INDEX_PATH="${AA_INDEX_PATH:-/dyn/torrents.json}"
 HDR_FILE="$STATE/aa_headers.txt"
 BYPASS_FLAG="$STATE/needs_bypass"
 CHALLENGE_BODY="$STATE/last_challenge.html"
@@ -60,7 +61,7 @@ fetch_json() {
 ok=0
 last_url=""
 for host in $AA_HOSTS; do
-  url="https://$host/torrents.json"
+  url="https://$host$AA_INDEX_PATH"
   last_url="$url"
   echo "[refresh] trying $url"
   if fetch_json "$url" "$STATE/torrents.json"; then
