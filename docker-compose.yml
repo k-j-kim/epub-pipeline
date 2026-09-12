@@ -52,6 +52,7 @@ services:
       - QB_PASS=${QB_PASS:-adminadmin}
       - MIN_EPUB_KB=${MIN_EPUB_KB:-200}
       - MAX_EPUB_MB=${MAX_EPUB_MB:-50}
+      - AA_HOSTS=${AA_HOSTS:-annas-archive.org annas-archive.se annas-archive.li}
     volumes:
       - ${DATA_DIR}/metadata:/metadata
       - ${DATA_DIR}/downloads:/downloads

@@ -11,11 +11,20 @@ echo "[refresh] $(date -Iseconds) starting"
 # Anna's Archive publishes a monthly torrent index at annas-archive.org/torrents.
 # The metadata torrent we want is the "aa_meta" jsonl.seekable.zst family.
 # We resolve the *current* torrent list dynamically so this survives monthly rotation.
-INDEX_URL="https://annas-archive.org/torrents.json"
-curl -fsSL "$INDEX_URL" -o "$STATE/torrents.json" || {
-  echo "[refresh] failed to fetch torrent index — will retry next cycle"
+AA_HOSTS="${AA_HOSTS:-annas-archive.org annas-archive.se annas-archive.li}"
+ok=0
+for host in $AA_HOSTS; do
+  echo "[refresh] trying $host"
+  if curl -fsSL --max-time 30 "https://$host/torrents.json" -o "$STATE/torrents.json"; then
+    echo "[refresh] fetched torrent index from $host"
+    ok=1; break
+  fi
+done
+if [ "$ok" != "1" ]; then
+  echo "[refresh] all AA hosts failed — will retry next cycle"
+  echo "[refresh] set AA_HOSTS in .env to override (space-separated)"
   exit 0
-}
+fi
 
 python3 /scripts/select_torrents.py \
   --index "$STATE/torrents.json" \
