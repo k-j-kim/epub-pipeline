@@ -20,6 +20,13 @@ TRIGGERS = {
     "send":    ["/scripts/send_to_kindle.py"],
 }
 
+BYPASS_FLAG    = STATE / "needs_bypass"
+HEADERS_FILE   = STATE / "aa_headers.txt"
+CHALLENGE_BODY = STATE / "last_challenge.html"
+
+# Headers we care about extracting from a pasted curl / raw block
+IMPORTANT_HEADERS = {"cookie", "user-agent", "accept", "accept-language", "referer"}
+
 # Track in-flight background jobs so the UI can show "running"
 running = {}
 running_lock = threading.Lock()
@@ -60,6 +67,12 @@ def library_count():
 def status():
     korean = STATE / "korean.sqlite"
     sent   = STATE / "sent.db"
+    bypass_url = None
+    if BYPASS_FLAG.exists():
+        try:
+            bypass_url = BYPASS_FLAG.read_text().strip()
+        except Exception:
+            bypass_url = "(unreadable)"
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "counts": {
@@ -71,12 +84,67 @@ def status():
             name: tail_log(STATE / f"{name}.log") for name in ("refresh", "ingest", "kindle")
         },
         "running": {name: (time.time() - t) for name, t in running.items()},
+        "bypass": {
+            "needed":       bypass_url is not None,
+            "url":          bypass_url,
+            "headers_saved": HEADERS_FILE.exists() and HEADERS_FILE.stat().st_size > 0,
+            "challenge_body_len": CHALLENGE_BODY.stat().st_size if CHALLENGE_BODY.exists() else 0,
+        },
         "env": {
             "BOOKS_PER_WEEK": os.environ.get("BOOKS_PER_WEEK"),
             "KINDLE_EMAIL":   os.environ.get("KINDLE_EMAIL", "").replace(os.environ.get("KINDLE_EMAIL","")[:3], "***", 1) if os.environ.get("KINDLE_EMAIL") else None,
             "TZ":             os.environ.get("TZ"),
         },
     }
+
+
+def parse_headers(raw):
+    """Extract useful HTTP headers from either:
+       - a full 'curl -H ... -H ...' command copied from browser DevTools, or
+       - a raw 'Name: value' block, one per line.
+       Returns a list of 'Name: value' strings.
+    """
+    out = {}
+    text = raw.strip()
+
+    # Format 1: curl command. Find every -H '...' or -H "...".
+    import re, shlex
+    if text.lstrip().startswith("curl"):
+        try:
+            tokens = shlex.split(text)
+        except ValueError:
+            tokens = text.split()
+        it = iter(tokens)
+        for tok in it:
+            if tok in ("-H", "--header"):
+                try:
+                    hdr = next(it)
+                except StopIteration:
+                    break
+                if ":" in hdr:
+                    k, v = hdr.split(":", 1)
+                    if k.strip().lower() in IMPORTANT_HEADERS:
+                        out[k.strip()] = v.strip()
+            elif tok in ("-b", "--cookie"):
+                try:
+                    out["Cookie"] = next(it).strip()
+                except StopIteration:
+                    break
+            elif tok in ("-A", "--user-agent"):
+                try:
+                    out["User-Agent"] = next(it).strip()
+                except StopIteration:
+                    break
+    else:
+        # Format 2: raw header lines
+        for line in text.splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                if k.strip().lower() in IMPORTANT_HEADERS:
+                    out[k.strip()] = v.strip()
+
+    # Cookie is the important one; a Cookie-less bypass is almost certainly wrong
+    return [f"{k}: {v}" for k, v in out.items()]
 
 
 def tail_log(path, lines=8):
@@ -137,6 +205,27 @@ INDEX_HTML = r"""<!DOCTYPE html>
     <span class="clock" id="clock"></span>
   </header>
 
+  <div id="bypass-panel" style="display:none">
+    <div class="section-title" style="color:var(--bad)">⚠ bot-gate hit — manual bypass needed</div>
+    <div class="card" style="border-color:var(--bad)">
+      <p style="margin:0 0 .5rem">Anna's Archive returned a JS interstitial for
+        <code id="bypass-url"></code>. Get past it in your real browser and paste the
+        request headers below (Cookie is the important one — the site's antibot
+        fingerprint sits in a session cookie set after you click through).</p>
+      <ol style="margin:.4rem 0 .8rem 1rem;padding:0;font-size:.9rem;color:var(--muted)">
+        <li>Open the URL above in Chrome/Firefox. Click through the "Loading..." page.</li>
+        <li>DevTools → Network → click the <code>/torrents.json</code> request → right-click → <b>Copy → Copy as cURL</b>.</li>
+        <li>Paste it below and click <b>Save headers &amp; retry</b>.</li>
+      </ol>
+      <textarea id="bypass-raw" rows="6" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:.5rem" placeholder="curl 'https://annas-archive.gs/torrents.json' -H 'user-agent: ...' -H 'cookie: ...'"></textarea>
+      <div class="row" style="margin-top:.6rem">
+        <button class="btn" id="bypass-save">💾 Save headers &amp; retry</button>
+        <button class="btn" id="bypass-clear">✕ Clear saved headers</button>
+        <span class="flash" id="bypass-flash"></span>
+      </div>
+    </div>
+  </div>
+
   <div class="section-title">status</div>
   <div class="grid" id="stats"></div>
 
@@ -166,6 +255,15 @@ document.getElementById("cw-link").href = `http://${HOST}:__CW_PORT__/`;
 async function refresh() {
   const r = await fetch("/status.json", { cache: "no-store" });
   const s = await r.json();
+
+  // bypass panel
+  const bp = document.getElementById("bypass-panel");
+  if (s.bypass && s.bypass.needed) {
+    bp.style.display = "";
+    document.getElementById("bypass-url").textContent = s.bypass.url || "";
+  } else {
+    bp.style.display = "none";
+  }
 
   const stats = document.getElementById("stats");
   stats.innerHTML = "";
@@ -216,6 +314,29 @@ document.querySelectorAll("button.btn[data-t]").forEach(b => {
   });
 });
 
+document.getElementById("bypass-save").addEventListener("click", async () => {
+  const raw = document.getElementById("bypass-raw").value;
+  const flash = document.getElementById("bypass-flash");
+  flash.textContent = "saving…";
+  const r = await fetch("/bypass", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ raw }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { flash.textContent = "✗ " + (j.error || r.status); return; }
+  flash.textContent = `✓ saved ${j.saved} headers (${j.headers_preview.join(", ")})${j.has_cookie ? "" : " — no Cookie found, that's usually wrong"}`;
+  // Kick off a refresh with the new headers
+  await fetch("/trigger/refresh", { method: "POST" });
+  setTimeout(refresh, 500);
+});
+
+document.getElementById("bypass-clear").addEventListener("click", async () => {
+  await fetch("/bypass/clear", { method: "POST" });
+  document.getElementById("bypass-flash").textContent = "cleared";
+  setTimeout(refresh, 300);
+});
+
 const tickClock = () => {
   document.getElementById("clock").textContent =
     new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -263,6 +384,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(404, {"error": "unknown trigger"})
             ok, msg = run_trigger(name)
             return self._json(200 if ok else 409, {"status": msg})
+
+        if self.path == "/bypass":
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length).decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw) if raw.lstrip().startswith("{") else {"raw": raw}
+            except Exception:
+                payload = {"raw": raw}
+            headers = parse_headers(payload.get("raw", ""))
+            if not headers:
+                return self._json(400, {"error": "no usable headers found; paste a full curl or 'Name: value' lines"})
+            has_cookie = any(h.lower().startswith("cookie:") for h in headers)
+            HEADERS_FILE.write_text("\n".join(headers) + "\n")
+            # Clear the flag; next refresh will retry with the saved headers
+            try: BYPASS_FLAG.unlink()
+            except FileNotFoundError: pass
+            return self._json(200, {
+                "saved": len(headers),
+                "has_cookie": has_cookie,
+                "headers_preview": [h.split(":",1)[0] for h in headers],
+            })
+
+        if self.path == "/bypass/clear":
+            for p in (HEADERS_FILE, BYPASS_FLAG, CHALLENGE_BODY):
+                try: p.unlink()
+                except FileNotFoundError: pass
+            return self._json(200, {"cleared": True})
+
         self.send_error(404)
 
     def log_message(self, fmt, *args):

@@ -1,13 +1,4 @@
 services:
-  # Tor SOCKS5 proxy — used by worker/mgmt to reach Anna's Archive (onion or clearnet
-  # via Tor exits, since clearnet AA is DNS-blocked/interstitial-gated as of 2026).
-  tor:
-    image: dperson/torproxy:latest
-    container_name: kbfm-tor
-    environment:
-      - TZ=${TZ:-Asia/Seoul}
-    restart: unless-stopped
-
   # Torrent client — pulls Anna's Archive metadata dump + selected Korean EPUB torrents
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
@@ -62,9 +53,6 @@ services:
       - MIN_EPUB_KB=${MIN_EPUB_KB:-200}
       - MAX_EPUB_MB=${MAX_EPUB_MB:-50}
       - AA_HOSTS=${AA_HOSTS:-annas-archive.gs annas-archive.org annas-archive.se}
-      - AA_ONION=${AA_ONION:-}
-      - TOR_PROXY=${TOR_PROXY:-socks5h://tor:9050}
-      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-}
     volumes:
       - ${DATA_DIR}/metadata:/metadata
       - ${DATA_DIR}/downloads:/downloads
@@ -74,7 +62,6 @@ services:
     depends_on:
       - qbittorrent
       - calibre-web
-      - tor
     dns:
       - 1.1.1.1
       - 8.8.8.8
@@ -100,9 +87,6 @@ services:
       - MIN_EPUB_KB=${MIN_EPUB_KB:-200}
       - MAX_EPUB_MB=${MAX_EPUB_MB:-50}
       - AA_HOSTS=${AA_HOSTS:-annas-archive.gs annas-archive.org annas-archive.se}
-      - AA_ONION=${AA_ONION:-}
-      - TOR_PROXY=${TOR_PROXY:-socks5h://tor:9050}
-      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-}
       - MGMT_PORT=8484
       - QB_PUBLIC_PORT=${QB_PORT:-8181}
       - CW_PUBLIC_PORT=${CW_PORT:-8283}
@@ -116,7 +100,6 @@ services:
       - "${MGMT_PORT:-8484}:8484"
     depends_on:
       - worker
-      - tor
     dns:
       - 1.1.1.1
       - 8.8.8.8
