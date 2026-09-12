@@ -1,10 +1,21 @@
-# Monthly: refresh Anna's Archive metadata dump, re-select Korean EPUBs, queue torrents
-0 3 1 * * root /scripts/refresh.sh >> /state/refresh.log 2>&1
+# Daily 03:00: fetch from every source (refresh.sh calls fetch_ia + fetch_libgen
+# + fetch_aa, then ingest.sh). Each source has a per-run budget in .env so this
+# stays within reasonable bandwidth/API limits.
+0 3 * * * root /scripts/refresh.sh >> /state/refresh.log 2>&1
 
-# Daily: ingest any newly-completed downloads into the Calibre library
-15 4 * * * root /scripts/ingest.sh >> /state/ingest.log 2>&1
+# Daily 04:00: catch any completed downloads that ingest hasn't picked up yet
+# (belt-and-suspenders — refresh.sh also calls ingest at the end).
+0 4 * * * root /scripts/ingest.sh >> /state/ingest.log 2>&1
 
-# Weekly (Sunday 09:00 local): email N unread Korean EPUBs to the Kindle
+# Weekly Sunday 05:00: quality sweep — remove books that fail the content
+# check (no title, mostly non-Korean, mostly images).
+0 5 * * 0 root /scripts/purge_non_korean.py >> /state/purge.log 2>&1
+
+# Weekly Sunday 05:30: heal fetch DBs — drop dead references so failed-once
+# rows get retried on next fetch.
+30 5 * * 0 root /scripts/heal_fetch_dbs.py >> /state/heal.log 2>&1
+
+# Weekly Sunday 09:00 local: email N unread Korean EPUBs to the Kindle.
 0 9 * * 0 root /scripts/send_to_kindle.py >> /state/kindle.log 2>&1
 
-# needed for cron to pick up env
+# trailing newline required for cron to load the last line
