@@ -21,6 +21,7 @@ TRIGGERS = {
     "fetch_aa":      ["python3", "/scripts/fetch_aa.py"],
     "ingest":        ["/scripts/ingest.sh"],
     "purge":         ["python3", "/scripts/purge_non_korean.py"],
+    "heal":          ["python3", "/scripts/heal_fetch_dbs.py"],
     "send":          ["/scripts/send_to_kindle.py"],
 }
 
@@ -92,11 +93,16 @@ def library_recent(limit=50):
     try:
         con = sqlite3.connect(f"file:{LIBRARY}/metadata.db?mode=ro", uri=True)
         rows = con.execute("""
-            SELECT b.id, b.title, b.timestamp, COALESCE(GROUP_CONCAT(a.name, ', '), '')
+            SELECT b.id, b.title, b.timestamp,
+                   COALESCE((SELECT GROUP_CONCAT(a.name, ', ')
+                             FROM books_authors_link bal
+                             JOIN authors a ON a.id = bal.author
+                             WHERE bal.book = b.id), ''),
+                   COALESCE((SELECT GROUP_CONCAT(t.name, ',')
+                             FROM books_tags_link btl
+                             JOIN tags t ON t.id = btl.tag
+                             WHERE btl.book = b.id AND t.name LIKE 'source:%'), '')
             FROM books b
-            LEFT JOIN books_authors_link bal ON bal.book = b.id
-            LEFT JOIN authors a ON a.id = bal.author
-            GROUP BY b.id
             ORDER BY b.timestamp DESC
             LIMIT ?
         """, (limit,)).fetchall()
@@ -112,7 +118,15 @@ def library_recent(limit=50):
             sent_ids = {r[0] for r in scon.execute("SELECT id FROM sent")}
         except Exception:
             pass
-    return [{"id": r[0], "title": r[1], "added_at": r[2], "author": r[3], "sent": r[0] in sent_ids} for r in rows]
+    def short_source(s):
+        # "source:ia" → "ia"; multi tags → first
+        for t in (s or "").split(","):
+            t = t.strip()
+            if t.startswith("source:"):
+                return t.split(":", 1)[1]
+        return ""
+    return [{"id": r[0], "title": r[1], "added_at": r[2], "author": r[3],
+             "source": short_source(r[4]), "sent": r[0] in sent_ids} for r in rows]
 
 
 def source_counts():
@@ -268,15 +282,21 @@ INDEX_HTML = r"""<!DOCTYPE html>
       anna's archive is blocked by a bot-gate — click to unlock (optional, IA+libgen still work)
     </summary>
     <div class="card" style="margin-top:.4rem">
-      <p style="margin:0 0 .5rem;font-size:.85rem;color:var(--muted)">
-        Blocked URL: <code id="bypass-url"></code>. Open it in a real browser,
-        DevTools → Network → the request → <b>Copy as cURL</b>, then paste below.
-        Cookie is the important header.
+      <p style="margin:0 0 .8rem;font-size:.85rem">
+        <b>1.</b> Open this URL in a real browser (Chrome/Firefox):<br>
+        <a id="bypass-url" target="_blank" rel="noopener"
+           style="display:inline-block;margin-top:.35rem;padding:.35rem .6rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;color:var(--accent);text-decoration:none;word-break:break-all">
+          (loading…)
+        </a>
       </p>
-      <textarea id="bypass-raw" rows="5" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:.5rem" placeholder="curl 'https://annas-archive.pk/search?...' -H 'user-agent: ...' -H 'cookie: ...'"></textarea>
+      <p style="margin:0 0 .5rem;font-size:.85rem">
+        <b>2.</b> DevTools → Network → click the request → right-click → <b>Copy → Copy as cURL</b>.<br>
+        <b>3.</b> Paste it here (the Cookie header is what unlocks AA):
+      </p>
+      <textarea id="bypass-raw" rows="5" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:.5rem" placeholder="curl 'https://annas-archive.pk/search?lang=ko&ext=epub' \\&#10;  -H 'user-agent: Mozilla/5.0 ...' \\&#10;  -H 'cookie: __ddg8_=...'"></textarea>
       <div class="row" style="margin-top:.5rem">
-        <button class="btn" id="bypass-save">save headers &amp; retry</button>
-        <button class="btn" id="bypass-clear">clear</button>
+        <button class="btn" id="bypass-save">💾 save headers &amp; retry</button>
+        <button class="btn" id="bypass-clear">✕ clear</button>
         <span class="flash" id="bypass-flash"></span>
       </div>
     </div>
@@ -301,6 +321,8 @@ INDEX_HTML = r"""<!DOCTYPE html>
     <button class="btn" data-t="fetch_libgen">📖 fetch libgen</button>
     <button class="btn" data-t="fetch_aa">📚 fetch anna's archive</button>
     <button class="btn" data-t="ingest">＋ ingest into library</button>
+    <button class="btn" data-t="purge">🧹 purge low-quality</button>
+    <button class="btn" data-t="heal">🩹 heal fetch DBs</button>
     <button class="btn" data-t="send">✉ send weekly picks now</button>
   </div>
   <div class="flash" id="flash"></div>
@@ -317,6 +339,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
           <th style="padding:.5rem .75rem">added</th>
           <th style="padding:.5rem .75rem">title</th>
           <th style="padding:.5rem .75rem">author</th>
+          <th style="padding:.5rem .75rem;width:4rem">source</th>
           <th style="padding:.5rem .75rem;width:2ch">✉</th>
           <th style="padding:.5rem .75rem;width:6rem"></th>
         </tr>
@@ -342,7 +365,9 @@ async function refresh() {
   const bp = document.getElementById("bypass-panel");
   if (s.bypass && s.bypass.needed) {
     bp.style.display = "";
-    document.getElementById("bypass-url").textContent = s.bypass.url || "";
+    const a = document.getElementById("bypass-url");
+    a.textContent = s.bypass.url || "";
+    a.href = s.bypass.url || "#";
   } else {
     bp.style.display = "none";
   }
@@ -450,10 +475,13 @@ async function refreshBooks() {
       const tr = document.createElement("tr");
       tr.style.borderTop = "1px solid var(--border)";
       const when = (b.added_at || "").slice(0, 10);
+      const src = b.source || "";
+      const srcBadge = src ? `<span style="font-size:.7rem;padding:.1rem .35rem;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--muted)">${escapeHtml(src)}</span>` : "";
       tr.innerHTML =
         `<td style="padding:.45rem .75rem;color:var(--muted);font-variant-numeric:tabular-nums">${when}</td>` +
         `<td style="padding:.45rem .75rem">${escapeHtml(b.title || "(untitled)")}</td>` +
         `<td style="padding:.45rem .75rem;color:var(--muted)">${escapeHtml(b.author || "")}</td>` +
+        `<td style="padding:.45rem .75rem">${srcBadge}</td>` +
         `<td style="padding:.45rem .75rem;text-align:center;color:var(--ok)">${b.sent ? "✓" : ""}</td>` +
         `<td style="padding:.45rem .75rem;text-align:right;white-space:nowrap">` +
           `<a href="/book/${b.id}.epub" title="download epub" style="color:var(--muted);text-decoration:none;margin-right:.5rem">⬇</a>` +

@@ -26,7 +26,18 @@ def db(path):
         identifier TEXT PRIMARY KEY,
         title TEXT, creator TEXT, path TEXT, size INTEGER,
         fetched_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    con.execute("CREATE TABLE IF NOT EXISTS cursor (k TEXT PRIMARY KEY, v INTEGER)")
     return con
+
+
+def cursor_get(con, k, default=1):
+    r = con.execute("SELECT v FROM cursor WHERE k=?", (k,)).fetchone()
+    return r[0] if r else default
+
+
+def cursor_set(con, k, v):
+    con.execute("INSERT INTO cursor(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=?", (k, v, v))
+    con.commit()
 
 
 def search(session, page, rows):
@@ -65,7 +76,8 @@ def main():
     s.headers["User-Agent"] = UA
 
     fetched = 0
-    page = 1
+    page = cursor_get(con, "page", 1)
+    print(f"[ia] starting at page {page}")
     while fetched < args.max_per_run:
         docs = search(s, page, 100)
         if not docs:
@@ -124,7 +136,12 @@ def main():
                 print(f"[ia] download fail {ident}: {e}", file=sys.stderr)
         page += 1
 
-    print(f"[ia] done, fetched {fetched} new EPUBs to {out}")
+    # Wrap page counter — IA advancedsearch caps at 10k rows total (~100 pages)
+    next_page = page if fetched < args.max_per_run else page + 1
+    if next_page > 100:
+        next_page = 1
+    cursor_set(con, "page", next_page)
+    print(f"[ia] done, fetched {fetched} new EPUBs to {out}  (next run resumes at page {next_page})")
 
 
 if __name__ == "__main__":
