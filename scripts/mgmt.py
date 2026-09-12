@@ -215,26 +215,24 @@ INDEX_HTML = r"""<!DOCTYPE html>
     <span class="clock" id="clock"></span>
   </header>
 
-  <div id="bypass-panel" style="display:none">
-    <div class="section-title" style="color:var(--bad)">⚠ bot-gate hit — manual bypass needed</div>
-    <div class="card" style="border-color:var(--bad)">
-      <p style="margin:0 0 .5rem">Anna's Archive returned a JS interstitial for
-        <code id="bypass-url"></code>. Get past it in your real browser and paste the
-        request headers below (Cookie is the important one — the site's antibot
-        fingerprint sits in a session cookie set after you click through).</p>
-      <ol style="margin:.4rem 0 .8rem 1rem;padding:0;font-size:.9rem;color:var(--muted)">
-        <li>Open the URL above in Chrome/Firefox. Click through the "Loading..." page.</li>
-        <li>DevTools → Network → click the <code>/torrents.json</code> request → right-click → <b>Copy → Copy as cURL</b>.</li>
-        <li>Paste it below and click <b>Save headers &amp; retry</b>.</li>
-      </ol>
-      <textarea id="bypass-raw" rows="6" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:.5rem" placeholder="curl 'https://annas-archive.gs/torrents.json' -H 'user-agent: ...' -H 'cookie: ...'"></textarea>
-      <div class="row" style="margin-top:.6rem">
-        <button class="btn" id="bypass-save">💾 Save headers &amp; retry</button>
-        <button class="btn" id="bypass-clear">✕ Clear saved headers</button>
+  <details id="bypass-panel" style="display:none;margin-bottom:1rem">
+    <summary style="cursor:pointer;color:var(--muted);font-size:.8rem;padding:.4rem 0">
+      anna's archive is blocked by a bot-gate — click to unlock (optional, IA+libgen still work)
+    </summary>
+    <div class="card" style="margin-top:.4rem">
+      <p style="margin:0 0 .5rem;font-size:.85rem;color:var(--muted)">
+        Blocked URL: <code id="bypass-url"></code>. Open it in a real browser,
+        DevTools → Network → the request → <b>Copy as cURL</b>, then paste below.
+        Cookie is the important header.
+      </p>
+      <textarea id="bypass-raw" rows="5" style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:.5rem" placeholder="curl 'https://annas-archive.pk/search?...' -H 'user-agent: ...' -H 'cookie: ...'"></textarea>
+      <div class="row" style="margin-top:.5rem">
+        <button class="btn" id="bypass-save">save headers &amp; retry</button>
+        <button class="btn" id="bypass-clear">clear</button>
         <span class="flash" id="bypass-flash"></span>
       </div>
     </div>
-  </div>
+  </details>
 
   <div class="section-title">status</div>
   <div class="grid" id="stats"></div>
