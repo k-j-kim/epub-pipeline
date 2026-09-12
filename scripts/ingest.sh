@@ -20,7 +20,7 @@ find "$DOWNLOADS" -type f -name '*.epub' -print0 2>/dev/null | while IFS= read -
   [ -f "$marker" ] && continue
   mkdir -p /state/ingested
 
-  if calibredb --with-library "$LIBRARY" add --duplicates=false "$epub" >/dev/null 2>&1; then
+  if calibredb --with-library "$LIBRARY" add "$epub" >/dev/null 2>&1; then
     touch "$marker"
     echo "[ingest] added $(basename "$epub")"
   else
