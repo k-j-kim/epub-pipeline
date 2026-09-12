@@ -16,13 +16,14 @@ from pathlib import Path
 
 STATE = Path("/state")
 DBS = [
-    (STATE / "ia.sqlite",     "identifier", "identifier"),
-    (STATE / "libgen.sqlite", "md5",        "md5"),
-    (STATE / "aa.sqlite",     "md5",        "md5"),
+    (STATE / "ia.sqlite",     "identifier"),
+    (STATE / "libgen.sqlite", "md5"),
+    (STATE / "aa.sqlite",     "md5"),
 ]
 
 
-def heal(db_path, key_col, table="fetched"):
+def heal(db_path, key_col):
+    table = "fetched"
     if not db_path.exists():
         return (0, 0, 0)
     con = sqlite3.connect(db_path)
@@ -43,10 +44,10 @@ def heal(db_path, key_col, table="fetched"):
 
 
 def main():
-    for db, key, table in DBS:
+    for db, key in DBS:
         name = db.stem
         try:
-            empty, missing, total = heal(db, key, table)
+            empty, missing, total = heal(db, key)
             print(f"[heal] {name}: cleared_empty={empty}  cleared_missing_file={missing}  remaining={total}")
         except Exception as e:
             print(f"[heal] {name}: FAILED {e}", file=sys.stderr)
