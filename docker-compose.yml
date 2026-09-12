@@ -61,6 +61,9 @@ services:
     depends_on:
       - qbittorrent
       - calibre-web
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     restart: unless-stopped
 
   # Management dashboard — status + manual triggers, on :${MGMT_PORT}
@@ -95,4 +98,7 @@ services:
       - "${MGMT_PORT:-8484}:8484"
     depends_on:
       - worker
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     restart: unless-stopped
