@@ -1,9 +1,9 @@
-# korean-books-for-mom
+# epub-pipeline
 
 An all-in-one Docker Compose stack for a Synology NAS that:
 
 1. Pulls Anna's Archive **monthly metadata dumps** via BitTorrent.
-2. Filters for **Korean-language EPUBs** in a sane size range.
+2. Filters EPUBs by **language + size** (default: Korean, 200 KB – 50 MB — tune in `.env` / `scripts/select_korean.py`).
 3. Torrents just those files (file-selection within larger book packs).
 4. Ingests them into a **Calibre-web** library (dedupe + browse UI).
 5. Emails **N random unread books per week** to a Kindle address.
@@ -46,8 +46,8 @@ Three containers:
 ```bash
 # On the NAS, over SSH
 cd /volume1/docker
-git clone https://github.com/k-j-kim/korean-books-for-mom.git
-cd korean-books-for-mom
+git clone https://github.com/k-j-kim/epub-pipeline.git
+cd epub-pipeline
 
 cp .env.example .env
 vi .env                       # fill in KINDLE_EMAIL + SMTP_* + DATA_DIR
@@ -111,7 +111,7 @@ rm -rf ${DATA_DIR}   # careful — this deletes your library too
 ## Layout
 
 ```
-korean-books-for-mom/
+epub-pipeline/
 ├── docker-compose.yml
 ├── .env.example
 ├── README.md
