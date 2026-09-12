@@ -68,6 +68,23 @@ def library_count():
     return sqlite_count(LIBRARY / "metadata.db", "SELECT COUNT(*) FROM books") or 0
 
 
+def book_epub_path(book_id):
+    """Resolve the on-disk EPUB path for a given Calibre book id."""
+    try:
+        con = sqlite3.connect(f"file:{LIBRARY}/metadata.db?mode=ro", uri=True)
+        row = con.execute("""
+            SELECT b.path, d.name FROM books b
+            JOIN data d ON d.book = b.id
+            WHERE b.id = ? AND UPPER(d.format) = 'EPUB' LIMIT 1
+        """, (book_id,)).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    p = Path(LIBRARY) / row[0] / f"{row[1]}.epub"
+    return p if p.exists() else None
+
+
 def library_recent(limit=50):
     """Return the N most recently added books: title, author, added_at, sent."""
     if not (LIBRARY / "metadata.db").exists():
@@ -301,6 +318,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
           <th style="padding:.5rem .75rem">title</th>
           <th style="padding:.5rem .75rem">author</th>
           <th style="padding:.5rem .75rem;width:2ch">✉</th>
+          <th style="padding:.5rem .75rem;width:6rem"></th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -436,7 +454,11 @@ async function refreshBooks() {
         `<td style="padding:.45rem .75rem;color:var(--muted);font-variant-numeric:tabular-nums">${when}</td>` +
         `<td style="padding:.45rem .75rem">${escapeHtml(b.title || "(untitled)")}</td>` +
         `<td style="padding:.45rem .75rem;color:var(--muted)">${escapeHtml(b.author || "")}</td>` +
-        `<td style="padding:.45rem .75rem;text-align:center;color:var(--ok)">${b.sent ? "✓" : ""}</td>`;
+        `<td style="padding:.45rem .75rem;text-align:center;color:var(--ok)">${b.sent ? "✓" : ""}</td>` +
+        `<td style="padding:.45rem .75rem;text-align:right;white-space:nowrap">` +
+          `<a href="/book/${b.id}.epub" title="download epub" style="color:var(--muted);text-decoration:none;margin-right:.5rem">⬇</a>` +
+          `<a href="#" data-del="${b.id}" title="delete" style="color:var(--muted);text-decoration:none">✕</a>` +
+        `</td>`;
       tbody.appendChild(tr);
     }
   } catch (e) { /* ignore transient errors */ }
@@ -444,6 +466,20 @@ async function refreshBooks() {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+document.querySelector("#books").addEventListener("click", async (e) => {
+  const a = e.target.closest("a[data-del]");
+  if (!a) return;
+  e.preventDefault();
+  const id = a.dataset.del;
+  if (!confirm(`Delete book #${id}?`)) return;
+  const r = await fetch(`/book/${id}/delete`, { method: "POST" });
+  if (r.ok) {
+    a.closest("tr").remove();
+  } else {
+    alert("delete failed: " + r.status);
+  }
+});
+
 document.getElementById("show-all").addEventListener("click", (e) => {
   e.preventDefault();
   bookLimit = bookLimit === 15 ? 500 : 15;
@@ -483,6 +519,26 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/status.json":
             return self._json(200, status())
+        if self.path.startswith("/book/") and self.path.endswith(".epub"):
+            try:
+                bid = int(self.path[len("/book/"):-len(".epub")])
+            except ValueError:
+                return self.send_error(400)
+            p = book_epub_path(bid)
+            if not p:
+                return self.send_error(404)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/epub+zip")
+            self.send_header("Content-Length", str(p.stat().st_size))
+            self.send_header("Content-Disposition", f'attachment; filename="book-{bid}.epub"')
+            self.end_headers()
+            with open(p, "rb") as f:
+                while True:
+                    chunk = f.read(1 << 15)
+                    if not chunk: break
+                    self.wfile.write(chunk)
+            return
+
         if self.path.startswith("/library.json"):
             # Optional ?limit=N (default 50, max 500)
             from urllib.parse import urlparse, parse_qs
@@ -522,6 +578,18 @@ class Handler(BaseHTTPRequestHandler):
                 "has_cookie": has_cookie,
                 "headers_preview": [h.split(":",1)[0] for h in headers],
             })
+
+        if self.path.startswith("/book/") and self.path.endswith("/delete"):
+            try:
+                bid = int(self.path[len("/book/"):-len("/delete")])
+            except ValueError:
+                return self._json(400, {"error": "bad id"})
+            try:
+                subprocess.check_call(["calibredb", "--with-library", str(LIBRARY),
+                                       "remove", str(bid)])
+                return self._json(200, {"deleted": bid})
+            except subprocess.CalledProcessError as e:
+                return self._json(500, {"error": str(e)})
 
         if self.path == "/bypass/clear":
             for p in (HEADERS_FILE, BYPASS_FLAG, CHALLENGE_BODY):
