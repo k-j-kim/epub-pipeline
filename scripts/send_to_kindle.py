@@ -18,6 +18,9 @@ SMTP_PASS = os.environ["SMTP_PASS"]
 SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER)
 
 
+MAX_ATTACHMENT_BYTES = 24 * 1024 * 1024  # Gmail SMTP cap ~25 MB with encoding overhead
+
+
 def calibre_list():
     """Return [(id, title, author, epub_path), ...] for every EPUB in the library."""
     out = subprocess.check_output([
@@ -61,7 +64,23 @@ def mail_one(path, title):
 
 def main():
     con, sent = already_sent()
-    books = [b for b in calibre_list() if b[0] not in sent]
+    books = []
+    oversized = 0
+    for b in calibre_list():
+        if b[0] in sent:
+            continue
+        try:
+            if os.path.getsize(b[3]) > MAX_ATTACHMENT_BYTES:
+                oversized += 1
+                # Mark as sent so we don't keep re-picking it every run
+                con.execute("INSERT OR REPLACE INTO sent(id) VALUES (?)", (b[0],))
+                continue
+        except OSError:
+            continue
+        books.append(b)
+    if oversized:
+        con.commit()
+        print(f"[send] skipping {oversized} books >24 MB (Gmail cap)")
     if not books:
         print("[send] no unread books in library — refresh may still be in progress")
         return
