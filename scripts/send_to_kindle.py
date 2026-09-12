@@ -3,7 +3,7 @@
 
 State (which books have been sent) lives in /state/sent.db so we never repeat.
 """
-import os, random, smtplib, sqlite3, subprocess, sys
+import os, random, smtplib, sqlite3, subprocess, sys, time
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -66,14 +66,20 @@ def main():
         print("[send] no unread books in library — refresh may still be in progress")
         return
     picks = random.sample(books, min(N, len(books)))
+    sent_count = 0
     for bid, title, author, path in picks:
         try:
-            print(f"[send] emailing {title} — {author}")
+            print(f"[send] {sent_count + 1}/{len(picks)}  {title} — {author}", flush=True)
             mail_one(path, f"{title} — {author}" if author else title)
             con.execute("INSERT OR REPLACE INTO sent(id) VALUES (?)", (bid,))
             con.commit()
+            sent_count += 1
+            # Gmail free tier: 500 recipients / 24h. Be gentle.
+            time.sleep(3)
         except Exception as e:
-            print(f"[send] FAILED {title}: {e}", file=sys.stderr)
+            print(f"[send] FAILED {title}: {e}", file=sys.stderr, flush=True)
+            time.sleep(10)  # back off harder on error
+    print(f"[send] done: {sent_count}/{len(picks)} sent")
 
 
 if __name__ == "__main__":
