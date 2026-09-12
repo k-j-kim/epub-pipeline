@@ -15,9 +15,12 @@ LIBRARY = Path("/library")
 DOWNLOADS = Path("/downloads")
 
 TRIGGERS = {
-    "refresh": ["/scripts/refresh.sh"],
-    "ingest":  ["/scripts/ingest.sh"],
-    "send":    ["/scripts/send_to_kindle.py"],
+    "refresh":       ["/scripts/refresh.sh"],
+    "fetch_ia":      ["python3", "/scripts/fetch_ia.py"],
+    "fetch_libgen":  ["python3", "/scripts/fetch_libgen.py"],
+    "fetch_aa":      ["python3", "/scripts/fetch_aa.py"],
+    "ingest":        ["/scripts/ingest.sh"],
+    "send":          ["/scripts/send_to_kindle.py"],
 }
 
 BYPASS_FLAG    = STATE / "needs_bypass"
@@ -64,8 +67,15 @@ def library_count():
     return sqlite_count(LIBRARY / "metadata.db", "SELECT COUNT(*) FROM books") or 0
 
 
+def source_counts():
+    out = {}
+    for name in ("ia", "libgen", "aa"):
+        p = STATE / f"{name}.sqlite"
+        out[name] = sqlite_count(p, "SELECT COUNT(*) FROM fetched WHERE size > 0") if p.exists() else 0
+    return out
+
+
 def status():
-    korean = STATE / "korean.sqlite"
     sent   = STATE / "sent.db"
     bypass_url = None
     if BYPASS_FLAG.exists():
@@ -76,10 +86,10 @@ def status():
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "counts": {
-            "korean_candidates": sqlite_count(korean, "SELECT COUNT(*) FROM korean_epubs") if korean.exists() else None,
             "library_books":     library_count(),
             "sent_books":        sqlite_count(sent, "SELECT COUNT(*) FROM sent") if sent.exists() else 0,
         },
+        "sources": source_counts(),
         "last_logs": {
             name: tail_log(STATE / f"{name}.log") for name in ("refresh", "ingest", "kindle")
         },
@@ -235,9 +245,15 @@ INDEX_HTML = r"""<!DOCTYPE html>
     <a class="btn" id="cw-link" target="_blank" rel="noopener">📚 Calibre-web</a>
   </div>
 
+  <div class="section-title">sources</div>
+  <div class="grid" id="sources"></div>
+
   <div class="section-title">manual triggers</div>
   <div class="row">
-    <button class="btn" data-t="refresh">↻ refresh (pull metadata + queue)</button>
+    <button class="btn" data-t="refresh">↻ refresh all sources</button>
+    <button class="btn" data-t="fetch_ia">🏛 fetch archive.org</button>
+    <button class="btn" data-t="fetch_libgen">📖 fetch libgen</button>
+    <button class="btn" data-t="fetch_aa">📚 fetch anna's archive</button>
     <button class="btn" data-t="ingest">＋ ingest into library</button>
     <button class="btn" data-t="send">✉ send weekly picks now</button>
   </div>
@@ -268,7 +284,6 @@ async function refresh() {
   const stats = document.getElementById("stats");
   stats.innerHTML = "";
   const cards = [
-    ["korean candidates (metadata)", s.counts.korean_candidates ?? "—"],
     ["books in library",             s.counts.library_books ?? 0],
     ["books already sent",           s.counts.sent_books ?? 0],
   ];
@@ -277,6 +292,17 @@ async function refresh() {
     c.className = "card stat";
     c.innerHTML = `<div class="n">${n}</div><div class="l">${l}</div>`;
     stats.appendChild(c);
+  }
+
+  // per-source cards
+  const sources = document.getElementById("sources");
+  sources.innerHTML = "";
+  const labels = { ia: "archive.org", libgen: "libgen", aa: "anna's archive" };
+  for (const [k, label] of Object.entries(labels)) {
+    const c = document.createElement("div");
+    c.className = "card stat";
+    c.innerHTML = `<div class="n">${s.sources?.[k] ?? 0}</div><div class="l">${label}</div>`;
+    sources.appendChild(c);
   }
 
   // buttons: disable if that trigger is running

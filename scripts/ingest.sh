@@ -3,7 +3,7 @@
 set -euo pipefail
 
 LIBRARY=/library
-DOWNLOADS=/downloads/kbfm-books
+DOWNLOADS=/downloads
 
 mkdir -p "$LIBRARY"
 
