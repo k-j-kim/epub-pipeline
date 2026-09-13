@@ -65,39 +65,59 @@ def make_client():
     return TelegramClient(SESSION, API_ID, API_HASH)
 
 
-async def cmd_login(force_sms=False):
-    """Interactive one-shot login. Prompts for the SMS code."""
+async def cmd_login(resend=False):
+    """Interactive one-shot login.
+
+    Flow:
+      * `--login`        → auth.sendCode, prompt for code, sign in.
+      * `--login --resend` → auth.resendCode against a saved phone_code_hash.
+        Use this when the initial delivery vanished; the server often
+        rotates to a different channel (SMS / voice) on resend.
+    """
     if not PHONE:
         print("[zlib] TG_PHONE not set", file=sys.stderr); sys.exit(1)
     client = make_client()
     await client.connect()
+
+    hash_file = Path(SESSION + ".code_hash")
+
     if not await client.is_user_authorized():
-        # Manually invoke send_code to get force_sms control
-        from telethon.tl.functions.auth import SendCodeRequest, ResendCodeRequest
-        from telethon.tl.types import CodeSettings
+        from telethon.tl.functions.auth import ResendCodeRequest
         try:
-            sent = await client.send_code_request(PHONE, force_sms=force_sms)
-            print(f"[zlib] code request accepted, type={sent.type.__class__.__name__}")
-            if force_sms:
-                print("[zlib] forced SMS fallback — check your phone's text messages")
+            if resend and hash_file.exists():
+                phone_code_hash = hash_file.read_text().strip()
+                sent = await client(ResendCodeRequest(phone_number=PHONE, phone_code_hash=phone_code_hash))
+                print(f"[zlib] resend_code → type={sent.type.__class__.__name__}"
+                      f"  next_type={getattr(sent, 'next_type', None) and sent.next_type.__class__.__name__}"
+                      f"  timeout={getattr(sent, 'timeout', None)}")
             else:
-                print("[zlib] Telegram will try in-app first; SMS fallback after ~2min")
-                print("[zlib] to force SMS immediately, rerun with:  ... --login --sms")
+                sent = await client.send_code_request(PHONE)
+                print(f"[zlib] send_code → type={sent.type.__class__.__name__}"
+                      f"  next_type={getattr(sent, 'next_type', None) and sent.next_type.__class__.__name__}"
+                      f"  timeout={getattr(sent, 'timeout', None)}")
+                hash_file.write_text(sent.phone_code_hash)
+                nt = getattr(sent, "next_type", None)
+                if nt:
+                    print(f"[zlib] fallback available; rerun with `--login --resend` after ~{sent.timeout or 60}s to switch to {nt.__class__.__name__}")
+                else:
+                    print("[zlib] server declared NO fallback for this request — code is app-only")
         except Exception as e:
-            print(f"[zlib] send_code failed: {e}", file=sys.stderr); return
-        code = input("Enter the code: ").strip()
+            print(f"[zlib] send/resend failed: {type(e).__name__}: {e}", file=sys.stderr); return
+        code = input("Enter the code (or Ctrl-C to exit and re-run with --resend): ").strip()
+        if not code:
+            return
         try:
             await client.sign_in(PHONE, code)
         except Exception as e:
-            # 2FA cloud password
             if "password" in str(e).lower() or "SessionPasswordNeededError" in type(e).__name__:
                 pw = input("2FA cloud password: ").strip()
                 await client.sign_in(password=pw)
             else:
-                print(f"[zlib] sign_in failed: {e}", file=sys.stderr); return
+                print(f"[zlib] sign_in failed: {type(e).__name__}: {e}", file=sys.stderr); return
     me = await client.get_me()
     print(f"[zlib] logged in as {me.first_name} @{me.username or '?'} (id={me.id})")
     print(f"[zlib] session saved to {SESSION}.session — future runs are non-interactive")
+    hash_file.unlink(missing_ok=True)
     await client.disconnect()
 
 
@@ -225,10 +245,10 @@ def _accept(dest: Path, con, book_id: str):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--login", action="store_true", help="one-shot Telegram login")
-    ap.add_argument("--sms", action="store_true", help="force SMS fallback for code delivery")
+    ap.add_argument("--resend", action="store_true", help="use auth.resendCode against the last send_code hash to try a different delivery channel")
     args = ap.parse_args()
     if args.login:
-        asyncio.run(cmd_login(force_sms=args.sms))
+        asyncio.run(cmd_login(resend=args.resend))
     else:
         asyncio.run(cmd_fetch())
 
