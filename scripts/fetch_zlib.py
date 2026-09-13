@@ -65,12 +65,36 @@ def make_client():
     return TelegramClient(SESSION, API_ID, API_HASH)
 
 
-async def cmd_login():
+async def cmd_login(force_sms=False):
     """Interactive one-shot login. Prompts for the SMS code."""
     if not PHONE:
         print("[zlib] TG_PHONE not set", file=sys.stderr); sys.exit(1)
     client = make_client()
-    await client.start(phone=PHONE)
+    await client.connect()
+    if not await client.is_user_authorized():
+        # Manually invoke send_code to get force_sms control
+        from telethon.tl.functions.auth import SendCodeRequest, ResendCodeRequest
+        from telethon.tl.types import CodeSettings
+        try:
+            sent = await client.send_code_request(PHONE, force_sms=force_sms)
+            print(f"[zlib] code request accepted, type={sent.type.__class__.__name__}")
+            if force_sms:
+                print("[zlib] forced SMS fallback — check your phone's text messages")
+            else:
+                print("[zlib] Telegram will try in-app first; SMS fallback after ~2min")
+                print("[zlib] to force SMS immediately, rerun with:  ... --login --sms")
+        except Exception as e:
+            print(f"[zlib] send_code failed: {e}", file=sys.stderr); return
+        code = input("Enter the code: ").strip()
+        try:
+            await client.sign_in(PHONE, code)
+        except Exception as e:
+            # 2FA cloud password
+            if "password" in str(e).lower() or "SessionPasswordNeededError" in type(e).__name__:
+                pw = input("2FA cloud password: ").strip()
+                await client.sign_in(password=pw)
+            else:
+                print(f"[zlib] sign_in failed: {e}", file=sys.stderr); return
     me = await client.get_me()
     print(f"[zlib] logged in as {me.first_name} @{me.username or '?'} (id={me.id})")
     print(f"[zlib] session saved to {SESSION}.session — future runs are non-interactive")
@@ -201,9 +225,10 @@ def _accept(dest: Path, con, book_id: str):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--login", action="store_true", help="one-shot Telegram login")
+    ap.add_argument("--sms", action="store_true", help="force SMS fallback for code delivery")
     args = ap.parse_args()
     if args.login:
-        asyncio.run(cmd_login())
+        asyncio.run(cmd_login(force_sms=args.sms))
     else:
         asyncio.run(cmd_fetch())
 
