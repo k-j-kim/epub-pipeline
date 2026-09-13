@@ -25,6 +25,10 @@ except ImportError:
 
 API_ID   = int(os.environ.get("TG_API_ID", "0") or "0")
 API_HASH = os.environ.get("TG_API_HASH", "")
+# Telegram Desktop's widely-known official api_id, used as a fallback
+# when a third-party api_id gets deprioritized for code delivery.
+DESKTOP_API_ID   = 2040
+DESKTOP_API_HASH = "b18441a1ff607e10a989891a5462e627"
 PHONE    = os.environ.get("TG_PHONE", "")
 BOT      = os.environ.get("ZLIB_BOT", "")
 SESSION  = "/state/telegram"
@@ -59,13 +63,20 @@ def cursor_set(con, k, v):
     con.commit()
 
 
-def make_client():
+def make_client(use_desktop=False):
+    if use_desktop:
+        # Emulate Telegram Desktop client (device + app version) so delivery is
+        # treated the same as if a real Desktop app were asking for the code.
+        c = TelegramClient(SESSION, DESKTOP_API_ID, DESKTOP_API_HASH,
+                           device_model="Desktop", system_version="Linux",
+                           app_version="4.16.10", lang_code="en", system_lang_code="en-US")
+        return c
     if not (API_ID and API_HASH):
         raise RuntimeError("TG_API_ID and TG_API_HASH must be set in .env")
     return TelegramClient(SESSION, API_ID, API_HASH)
 
 
-async def cmd_login(resend=False):
+async def cmd_login(resend=False, use_desktop=False):
     """Interactive one-shot login.
 
     Flow:
@@ -76,7 +87,9 @@ async def cmd_login(resend=False):
     """
     if not PHONE:
         print("[zlib] TG_PHONE not set", file=sys.stderr); sys.exit(1)
-    client = make_client()
+    client = make_client(use_desktop=use_desktop)
+    if use_desktop:
+        print("[zlib] using Telegram Desktop's official api_id (fallback path)")
     await client.connect()
 
     hash_file = Path(SESSION + ".code_hash")
@@ -246,9 +259,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--login", action="store_true", help="one-shot Telegram login")
     ap.add_argument("--resend", action="store_true", help="use auth.resendCode against the last send_code hash to try a different delivery channel")
+    ap.add_argument("--desktop", action="store_true", help="use Telegram Desktop's api_id instead of TG_API_ID (works around third-party delivery restrictions)")
     args = ap.parse_args()
     if args.login:
-        asyncio.run(cmd_login(resend=args.resend))
+        asyncio.run(cmd_login(resend=args.resend, use_desktop=args.desktop))
     else:
         asyncio.run(cmd_fetch())
 
