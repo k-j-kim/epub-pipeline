@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       cron sqlite3 curl ca-certificates zstd calibre \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir requests
+RUN pip install --no-cache-dir requests telethon
 
 WORKDIR /scripts
 COPY crontab /etc/cron.d/kbfm
