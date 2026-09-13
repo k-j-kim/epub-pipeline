@@ -31,6 +31,7 @@ while IFS= read -r -d '' epub; do
     kbfm-ia)     tag="source:ia" ;;
     kbfm-libgen) tag="source:libgen" ;;
     kbfm-aa)     tag="source:aa" ;;
+    kbfm-zlib)   tag="source:zlib" ;;
     *)           tag="source:unknown" ;;
   esac
 

@@ -7,7 +7,7 @@ STATE=/state
 mkdir -p "$STATE"
 echo "[refresh] $(date -Iseconds) starting"
 
-SOURCES="${SOURCES:-ia libgen aa}"
+SOURCES="${SOURCES:-ia libgen zlib aa}"
 
 run_one() {
   local name="$1" cmd="$2"
@@ -23,6 +23,7 @@ for src in $SOURCES; do
   case "$src" in
     ia)     run_one ia     "python3 /scripts/fetch_ia.py" ;;
     libgen) run_one libgen "python3 /scripts/fetch_libgen.py" ;;
+    zlib)   run_one zlib   "python3 /scripts/fetch_zlib.py" ;;
     aa)     run_one aa     "python3 /scripts/fetch_aa.py" ;;
     *) echo "[refresh] unknown source: $src" ;;
   esac

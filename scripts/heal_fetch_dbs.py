@@ -19,6 +19,7 @@ DBS = [
     (STATE / "ia.sqlite",     "identifier"),
     (STATE / "libgen.sqlite", "md5"),
     (STATE / "aa.sqlite",     "md5"),
+    (STATE / "zlib.sqlite",   "book_id"),
 ]
 
 

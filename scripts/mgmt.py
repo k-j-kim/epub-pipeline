@@ -18,6 +18,7 @@ TRIGGERS = {
     "refresh":       ["/scripts/refresh.sh"],
     "fetch_ia":      ["python3", "/scripts/fetch_ia.py"],
     "fetch_libgen":  ["python3", "/scripts/fetch_libgen.py"],
+    "fetch_zlib":    ["python3", "/scripts/fetch_zlib.py"],
     "fetch_aa":      ["python3", "/scripts/fetch_aa.py"],
     "ingest":        ["/scripts/ingest.sh"],
     "purge":         ["python3", "/scripts/purge_non_korean.py"],
@@ -131,7 +132,7 @@ def library_recent(limit=50):
 
 def source_counts():
     out = {}
-    for name in ("ia", "libgen", "aa"):
+    for name in ("ia", "libgen", "zlib", "aa"):
         p = STATE / f"{name}.sqlite"
         out[name] = sqlite_count(p, "SELECT COUNT(*) FROM fetched WHERE size > 0") if p.exists() else 0
     return out
@@ -321,6 +322,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     <button class="btn" data-t="refresh">↻ refresh all sources</button>
     <button class="btn" data-t="fetch_ia">🏛 fetch archive.org</button>
     <button class="btn" data-t="fetch_libgen">📖 fetch libgen</button>
+    <button class="btn" data-t="fetch_zlib">📕 fetch z-library</button>
     <button class="btn" data-t="fetch_aa">📚 fetch anna's archive</button>
     <button class="btn" data-t="ingest">＋ ingest into library</button>
     <button class="btn" data-t="purge">🧹 purge low-quality</button>
@@ -390,7 +392,7 @@ async function refresh() {
   // per-source cards
   const sources = document.getElementById("sources");
   sources.innerHTML = "";
-  const labels = { ia: "archive.org", libgen: "libgen", aa: "anna's archive" };
+  const labels = { ia: "archive.org", libgen: "libgen", zlib: "z-library", aa: "anna's archive" };
   for (const [k, label] of Object.entries(labels)) {
     const c = document.createElement("div");
     c.className = "card stat";
